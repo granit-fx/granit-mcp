@@ -150,6 +150,20 @@ function isPublicMember(fullLine, typeKind) {
   return !fullLine.startsWith('private ') && !fullLine.startsWith('protected ');
 }
 
+function countBraceDepth(line, depth) {
+  for (const ch of line) {
+    if (ch === '{') depth++;
+    if (ch === '}') depth--;
+  }
+  return depth;
+}
+
+function tryCompleteMember(pendingLine, typeKind) {
+  const fullLine = pendingLine.replaceAll(/\s+/g, ' ').trim();
+  if (!isPublicMember(fullLine, typeKind)) return null;
+  return parseMemberLine(fullLine, typeKind);
+}
+
 function extractMembers(content, typeStartOffset, typeKind) {
   const members = [];
 
@@ -164,10 +178,7 @@ function extractMembers(content, typeStartOffset, typeKind) {
   let pendingLine = '';
 
   for (const rawLine of lines) {
-    for (const ch of rawLine) {
-      if (ch === '{') depth++;
-      if (ch === '}') depth--;
-    }
+    depth = countBraceDepth(rawLine, depth);
 
     if (depth <= 0) break;
     if (depth !== 1) { pendingLine = ''; continue; }
@@ -176,16 +187,11 @@ function extractMembers(content, typeStartOffset, typeKind) {
     if (isSkippableLine(line)) continue;
 
     pendingLine = pendingLine ? `${pendingLine} ${line}` : line;
-
     if (!isSignatureComplete(pendingLine)) continue;
 
-    const fullLine = pendingLine.replaceAll(/\s+/g, ' ').trim();
+    const member = tryCompleteMember(pendingLine, typeKind);
+    if (member) members.push(member);
     pendingLine = '';
-
-    if (isPublicMember(fullLine, typeKind)) {
-      const member = parseMemberLine(fullLine, typeKind);
-      if (member) members.push(member);
-    }
   }
 
   return members;
