@@ -79,11 +79,11 @@ function extractExports(indexPath, pkgDir) {
   const content = readFileSync(indexPath, 'utf-8');
   const exports = [];
 
-  // Process direct exports in this file
-  exports.push(...extractDirectExports(content));
-
-  // Process re-exports from other files
-  exports.push(...extractReExports(content, pkgDir));
+  // Process direct exports and re-exports from other files
+  exports.push(
+    ...extractDirectExports(content),
+    ...extractReExports(content, pkgDir),
+  );
 
   // Deduplicate by name
   const seen = new Set();
@@ -161,7 +161,6 @@ function extractDirectExports(content) {
         .replace(/^export\s+/, '')
         .replace(/\s*=.*$/, '');
       exports.push({ name: constMatch[1], kind: 'const', signature: sig });
-      continue;
     }
   }
 
@@ -178,52 +177,57 @@ function extractReExports(content, pkgDir) {
     // export { Foo, Bar } from './module'
     const namedReExport = trimmed.match(/^export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/);
     if (namedReExport) {
-      const names = namedReExport[1].split(',').map((n) => n.trim());
-      const modulePath = namedReExport[2];
-      const resolvedFile = resolveModule(pkgDir, modulePath);
-
-      if (resolvedFile) {
-        const moduleContent = readFileSync(resolvedFile, 'utf-8');
-        for (const raw of names) {
-          // Handle "type Foo" and "Foo as Bar"
-          const cleaned = raw.replace(/^type\s+/, '');
-          const alias = cleaned.match(/(\w+)\s+as\s+(\w+)/);
-          const originalName = alias ? alias[1] : cleaned;
-          const exportedName = alias ? alias[2] : cleaned;
-
-          const found = findExportInContent(moduleContent, originalName);
-          if (found) {
-            exports.push({ ...found, name: exportedName });
-          }
-        }
-      }
+      exports.push(...resolveAndExtractNames(namedReExport[1], namedReExport[2], pkgDir, true));
       continue;
     }
 
     // export type { Foo } from './module'
     const typeReExport = trimmed.match(/^export\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/);
     if (typeReExport) {
-      const names = typeReExport[1].split(',').map((n) => n.trim());
-      const modulePath = typeReExport[2];
-      const resolvedFile = resolveModule(pkgDir, modulePath);
-
-      if (resolvedFile) {
-        const moduleContent = readFileSync(resolvedFile, 'utf-8');
-        for (const raw of names) {
-          const alias = raw.match(/(\w+)\s+as\s+(\w+)/);
-          const originalName = alias ? alias[1] : raw;
-          const exportedName = alias ? alias[2] : raw;
-
-          const found = findExportInContent(moduleContent, originalName);
-          if (found) {
-            exports.push({ ...found, name: exportedName });
-          }
-        }
-      }
+      exports.push(...resolveAndExtractNames(typeReExport[1], typeReExport[2], pkgDir, false));
     }
   }
 
   return exports;
+}
+
+/**
+ * Resolves a module path and extracts named exports from it.
+ * @param {string} rawNames - Comma-separated export names (e.g. "Foo, Bar as Baz")
+ * @param {string} modulePath - Relative module path
+ * @param {string} pkgDir - Package directory
+ * @param {boolean} stripTypePrefix - Whether to strip "type " prefix from names
+ */
+function resolveAndExtractNames(rawNames, modulePath, pkgDir, stripTypePrefix) {
+  const resolvedFile = resolveModule(pkgDir, modulePath);
+  if (!resolvedFile) return [];
+
+  const moduleContent = readFileSync(resolvedFile, 'utf-8');
+  const names = rawNames.split(',').map((n) => n.trim());
+  const results = [];
+
+  for (const raw of names) {
+    const cleaned = stripTypePrefix ? raw.replace(/^type\s+/, '') : raw;
+    const { originalName, exportedName } = parseAliasedName(cleaned);
+
+    const found = findExportInContent(moduleContent, originalName);
+    if (found) {
+      results.push({ ...found, name: exportedName });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Parses a potentially aliased name like "Foo as Bar" into original and exported names.
+ */
+function parseAliasedName(name) {
+  const alias = name.match(/(\w+)\s+as\s+(\w+)/);
+  return {
+    originalName: alias ? alias[1] : name,
+    exportedName: alias ? alias[2] : name,
+  };
 }
 
 function findExportInContent(content, name) {
@@ -231,7 +235,7 @@ function findExportInContent(content, name) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    if (line.match(new RegExp(`^export\\s+interface\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+interface\s+${name}\b`))) {
       const members = extractInterfaceMembers(lines, i);
       return {
         name,
@@ -240,27 +244,27 @@ function findExportInContent(content, name) {
         members,
       };
     }
-    if (line.match(new RegExp(`^export\\s+type\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+type\s+${name}\b`))) {
       const sig = collectSignature(lines, i).replace(/^export\s+/, '');
       return { name, kind: 'type', signature: sig };
     }
-    if (line.match(new RegExp(`^export\\s+(?:async\\s+)?function\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+(?:async\s+)?function\s+${name}\b`))) {
       const sig = collectSignature(lines, i)
         .replace(/^export\s+/, '')
         .replace(/\s*\{.*$/, '');
       return { name, kind: 'function', signature: sig };
     }
-    if (line.match(new RegExp(`^export\\s+(?:abstract\\s+)?class\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+(?:abstract\s+)?class\s+${name}\b`))) {
       return {
         name,
         kind: 'class',
         signature: line.replace(/\s*\{.*$/, '').replace(/^export\s+/, ''),
       };
     }
-    if (line.match(new RegExp(`^export\\s+enum\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+enum\s+${name}\b`))) {
       return { name, kind: 'enum', signature: `enum ${name}` };
     }
-    if (line.match(new RegExp(`^export\\s+const\\s+${name}\\b`))) {
+    if (line.match(new RegExp(String.raw`^export\s+const\s+${name}\b`))) {
       const sig = collectSignature(lines, i)
         .replace(/^export\s+/, '')
         .replace(/\s*=.*$/, '');
@@ -322,47 +326,64 @@ function extractInterfaceMembers(lines, startIdx) {
 
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i];
-    for (const ch of line) {
-      if (ch === '{') { depth++; started = true; }
-      if (ch === '}') depth--;
-    }
+    ({ depth, started } = updateBraceDepth(line, depth, started));
 
     if (started && depth === 0) break;
-    if (depth !== 1) continue;
-    if (i === startIdx) continue; // skip the interface declaration line
+    if (depth !== 1 || i === startIdx) continue;
 
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
-
-    // Parse member: name: type or name(...): type
-    const memberMatch = trimmed.match(/^(\w+)(\??):\s*(.+?)[\s;]*$/);
-    if (memberMatch) {
-      const mName = memberMatch[1];
-      const optional = memberMatch[2];
-      const mType = memberMatch[3].replace(/;$/, '').trim();
-      members.push({
-        name: mName,
-        kind: mType.includes('=>') || mType.startsWith('(') ? 'method' : 'property',
-        signature: `${mName}${optional}: ${mType}`,
-      });
-      continue;
-    }
-
-    // Method: name(...): ReturnType
-    const methodMatch = trimmed.match(/^(\w+)\s*\(/);
-    if (methodMatch) {
-      const sig = collectSignature(lines, i)
-        .replace(/;$/, '')
-        .trim();
-      members.push({
-        name: methodMatch[1],
-        kind: 'method',
-        signature: sig,
-      });
-    }
+    const member = parseMemberLine(lines, i);
+    if (member) members.push(member);
   }
 
   return members;
+}
+
+/**
+ * Updates brace depth tracking for interface body parsing.
+ */
+function updateBraceDepth(line, depth, started) {
+  for (const ch of line) {
+    if (ch === '{') { depth++; started = true; }
+    if (ch === '}') depth--;
+  }
+  return { depth, started };
+}
+
+/**
+ * Attempts to parse a single interface member line, returning null if the line
+ * is empty, a comment, or not a recognized member pattern.
+ */
+function parseMemberLine(lines, idx) {
+  const trimmed = lines[idx].trim();
+  if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+    return null;
+  }
+
+  // Parse member: name: type or name(...): type
+  const memberMatch = trimmed.match(/^(\w+)(\??):\s*(.+?)[\s;]*$/);
+  if (memberMatch) {
+    const mName = memberMatch[1];
+    const optional = memberMatch[2];
+    const mType = memberMatch[3].replace(/;$/, '').trim();
+    return {
+      name: mName,
+      kind: mType.includes('=>') || mType.startsWith('(') ? 'method' : 'property',
+      signature: `${mName}${optional}: ${mType}`,
+    };
+  }
+
+  // Method: name(...): ReturnType
+  const methodMatch = trimmed.match(/^(\w+)\s*\(/);
+  if (methodMatch) {
+    const sig = collectSignature(lines, idx).replace(/;$/, '').trim();
+    return {
+      name: methodMatch[1],
+      kind: 'method',
+      signature: sig,
+    };
+  }
+
+  return null;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

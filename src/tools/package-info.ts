@@ -37,9 +37,11 @@ export async function handlePackageInfo(input: PackageInfoInput, cache: KVCache)
     '',
   ];
 
-  lines.push(...formatMetadata(info));
-  lines.push(...formatDependencyGroups(info.dependencyGroups));
-  lines.push(...formatVersionHistory(info.versions));
+  lines.push(
+    ...formatMetadata(info),
+    ...formatDependencyGroups(info.dependencyGroups),
+    ...formatVersionHistory(info.versions),
+  );
 
   return lines.filter((l) => l !== undefined).join('\n');
 }
