@@ -47,12 +47,27 @@ function alphaOnly(s: string): string {
  * "multi-tenancy" → "multi-tenancy", "Granit.Caching" → "caching".
  */
 function toSlug(input: string): string {
-  return input
+  let slug = input
     .replace(/^granit\.?/i, '')
     .replaceAll(/([a-z])([A-Z])/g, '$1-$2') // camelCase → kebab
     .toLowerCase()
-    .replaceAll(/[\s_.]+/g, '-')
-    .replaceAll(/^-+|-+$/g, '');
+    .replaceAll(/[\s_.]+/g, '-');
+  // Trim leading and trailing dashes without ReDoS-prone regex
+  let start = 0;
+  while (start < slug.length && slug[start] === '-') start++;
+  let end = slug.length;
+  while (end > start && slug[end - 1] === '-') end--;
+  return slug.substring(start, end);
+}
+
+/** Extract main title before em-dash/en-dash/hyphen separator (e.g. "Module — Details" → "Module"). */
+function splitAtDash(title: string): string {
+  const separators = [' \u2014 ', ' \u2013 ', ' - '];
+  for (const sep of separators) {
+    const idx = title.indexOf(sep);
+    if (idx !== -1) return title.substring(0, idx);
+  }
+  return title;
 }
 
 function slugRank(candidate: string, target: string): number {
@@ -72,7 +87,7 @@ function findModule(entries: IndexEntry[], rawInput: string): IndexEntry | undef
 
   // 2. Exact title match — compare alpha-only against main title (before em-dash)
   const exact = modules.find((e) => {
-    const mainTitle = e.title.split(/\s+[\u2014\u2013]\s+/)[0].split(/\s+-\s+/)[0];
+    const mainTitle = splitAtDash(e.title);
     return alphaOnly(mainTitle) === alpha;
   });
   if (exact) return exact;

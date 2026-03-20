@@ -73,6 +73,42 @@ function discoverPackages() {
   return packages.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// ─── String-based parsing helpers (avoid ReDoS-vulnerable regexes) ───────────
+
+function isWordChar(ch) {
+  return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch === '_';
+}
+
+/** Truncate at the first occurrence of any char in `chars`, trimming trailing whitespace. */
+function truncateAt(str, chars) {
+  for (let i = 0; i < str.length; i++) {
+    if (chars.includes(str[i])) return str.substring(0, i).trimEnd();
+  }
+  return str;
+}
+
+/** Strip leading "export " prefix. */
+function stripExportPrefix(str) {
+  if (!str.startsWith('export ')) return str;
+  let i = 7;
+  while (i < str.length && (str[i] === ' ' || str[i] === '\t')) i++;
+  return str.substring(i);
+}
+
+/**
+ * Check if a trimmed line matches "export [modifier] keyword name" with word boundary.
+ * modifier is optional (e.g. "async", "abstract").
+ */
+function matchesExportKeyword(line, keyword, name, modifier) {
+  const prefix = modifier
+    ? `export ${modifier} ${keyword} `
+    : `export ${keyword} `;
+  if (!line.startsWith(prefix)) return false;
+  if (!line.startsWith(name, prefix.length)) return false;
+  const afterIdx = prefix.length + name.length;
+  return afterIdx >= line.length || !isWordChar(line[afterIdx]);
+}
+
 // ─── TypeScript export extraction ─────────────────────────────────────────────
 
 function extractExports(indexPath, pkgDir) {
@@ -108,7 +144,7 @@ function extractDirectExports(content) {
       exports.push({
         name: ifaceMatch[1],
         kind: 'interface',
-        signature: line.replace(/\s*\{.*$/, '').replace(/^export\s+/, ''),
+        signature: stripExportPrefix(truncateAt(line, '{')),
         members,
       });
       continue;
@@ -117,7 +153,7 @@ function extractDirectExports(content) {
     // export type Foo = ...
     const typeMatch = line.match(/^export\s+type\s+(\w+)(?:<[^>]+>)?/);
     if (typeMatch) {
-      const sig = collectSignature(lines, i).replace(/^export\s+/, '');
+      const sig = stripExportPrefix(collectSignature(lines, i));
       exports.push({ name: typeMatch[1], kind: 'type', signature: sig });
       continue;
     }
@@ -125,9 +161,7 @@ function extractDirectExports(content) {
     // export function foo(...)
     const funcMatch = line.match(/^export\s+(?:async\s+)?function\s+(\w+)/);
     if (funcMatch) {
-      const sig = collectSignature(lines, i)
-        .replace(/^export\s+/, '')
-        .replace(/\s*\{.*$/, '');
+      const sig = truncateAt(stripExportPrefix(collectSignature(lines, i)), '{');
       exports.push({ name: funcMatch[1], kind: 'function', signature: sig });
       continue;
     }
@@ -138,7 +172,7 @@ function extractDirectExports(content) {
       exports.push({
         name: classMatch[1],
         kind: 'class',
-        signature: line.replace(/\s*\{.*$/, '').replace(/^export\s+/, ''),
+        signature: stripExportPrefix(truncateAt(line, '{')),
       });
       continue;
     }
@@ -157,9 +191,7 @@ function extractDirectExports(content) {
     // export const foo = ...
     const constMatch = line.match(/^export\s+const\s+(\w+)/);
     if (constMatch) {
-      const sig = collectSignature(lines, i)
-        .replace(/^export\s+/, '')
-        .replace(/\s*=.*$/, '');
+      const sig = truncateAt(stripExportPrefix(collectSignature(lines, i)), '=');
       exports.push({ name: constMatch[1], kind: 'const', signature: sig });
     }
   }
@@ -223,10 +255,13 @@ function resolveAndExtractNames(rawNames, modulePath, pkgDir, stripTypePrefix) {
  * Parses a potentially aliased name like "Foo as Bar" into original and exported names.
  */
 function parseAliasedName(name) {
-  const alias = name.match(/(\w+)\s+as\s+(\w+)/);
+  const asIdx = name.indexOf(' as ');
+  if (asIdx === -1) return { originalName: name, exportedName: name };
+  const original = name.substring(0, asIdx).trim();
+  const exported = name.substring(asIdx + 4).trim();
   return {
-    originalName: alias ? alias[1] : name,
-    exportedName: alias ? alias[2] : name,
+    originalName: original || name,
+    exportedName: exported || name,
   };
 }
 
@@ -235,39 +270,35 @@ function findExportInContent(content, name) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    if (line.match(new RegExp(String.raw`^export\s+interface\s+${name}\b`))) {
+    if (matchesExportKeyword(line, 'interface', name)) {
       const members = extractInterfaceMembers(lines, i);
       return {
         name,
         kind: 'interface',
-        signature: line.replace(/\s*\{.*$/, '').replace(/^export\s+/, ''),
+        signature: stripExportPrefix(truncateAt(line, '{')),
         members,
       };
     }
-    if (line.match(new RegExp(String.raw`^export\s+type\s+${name}\b`))) {
-      const sig = collectSignature(lines, i).replace(/^export\s+/, '');
+    if (matchesExportKeyword(line, 'type', name)) {
+      const sig = stripExportPrefix(collectSignature(lines, i));
       return { name, kind: 'type', signature: sig };
     }
-    if (line.match(new RegExp(String.raw`^export\s+(?:async\s+)?function\s+${name}\b`))) {
-      const sig = collectSignature(lines, i)
-        .replace(/^export\s+/, '')
-        .replace(/\s*\{.*$/, '');
+    if (matchesExportKeyword(line, 'function', name) || matchesExportKeyword(line, 'function', name, 'async')) {
+      const sig = truncateAt(stripExportPrefix(collectSignature(lines, i)), '{');
       return { name, kind: 'function', signature: sig };
     }
-    if (line.match(new RegExp(String.raw`^export\s+(?:abstract\s+)?class\s+${name}\b`))) {
+    if (matchesExportKeyword(line, 'class', name) || matchesExportKeyword(line, 'class', name, 'abstract')) {
       return {
         name,
         kind: 'class',
-        signature: line.replace(/\s*\{.*$/, '').replace(/^export\s+/, ''),
+        signature: stripExportPrefix(truncateAt(line, '{')),
       };
     }
-    if (line.match(new RegExp(String.raw`^export\s+enum\s+${name}\b`))) {
+    if (matchesExportKeyword(line, 'enum', name)) {
       return { name, kind: 'enum', signature: `enum ${name}` };
     }
-    if (line.match(new RegExp(String.raw`^export\s+const\s+${name}\b`))) {
-      const sig = collectSignature(lines, i)
-        .replace(/^export\s+/, '')
-        .replace(/\s*=.*$/, '');
+    if (matchesExportKeyword(line, 'const', name)) {
+      const sig = truncateAt(stripExportPrefix(collectSignature(lines, i)), '=');
       return { name, kind: 'const', signature: sig };
     }
   }
@@ -360,16 +391,27 @@ function parseMemberLine(lines, idx) {
   }
 
   // Parse member: name: type or name(...): type
-  const memberMatch = trimmed.match(/^(\w+)(\??):\s*(.+?)[\s;]*$/);
-  if (memberMatch) {
-    const mName = memberMatch[1];
-    const optional = memberMatch[2];
-    const mType = memberMatch[3].replace(/;$/, '').trim();
-    return {
-      name: mName,
-      kind: mType.includes('=>') || mType.startsWith('(') ? 'method' : 'property',
-      signature: `${mName}${optional}: ${mType}`,
-    };
+  let nameEnd = 0;
+  while (nameEnd < trimmed.length && isWordChar(trimmed[nameEnd])) nameEnd++;
+  if (nameEnd > 0) {
+    const mName = trimmed.substring(0, nameEnd);
+    let pos = nameEnd;
+    const optional = trimmed[pos] === '?' ? '?' : '';
+    if (optional) pos++;
+    if (trimmed[pos] === ':') {
+      pos++;
+      while (pos < trimmed.length && (trimmed[pos] === ' ' || trimmed[pos] === '\t')) pos++;
+      let mType = trimmed.substring(pos);
+      // Trim trailing semicolons and whitespace
+      while (mType.endsWith(';') || mType.endsWith(' ')) mType = mType.slice(0, -1);
+      if (mType) {
+        return {
+          name: mName,
+          kind: mType.includes('=>') || mType.startsWith('(') ? 'method' : 'property',
+          signature: `${mName}${optional}: ${mType}`,
+        };
+      }
+    }
   }
 
   // Method: name(...): ReturnType

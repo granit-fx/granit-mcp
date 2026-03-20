@@ -197,49 +197,109 @@ function extractMembers(content, typeStartOffset, typeKind) {
   return members;
 }
 
+// ─── String-based parsing helpers (avoid ReDoS-vulnerable regexes) ───────────
+
+function isWordChar(ch) {
+  return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch === '_';
+}
+
+/** Split "returnType name" by the last word → [prefix, word] or null. */
+function splitLastWord(str) {
+  const t = str.trimEnd();
+  let i = t.length - 1;
+  while (i >= 0 && isWordChar(t[i])) i--;
+  if (i < 0 || i === t.length - 1) return null;
+  const word = t.substring(i + 1);
+  const before = t.substring(0, i + 1).trimEnd();
+  return before ? [before, word] : null;
+}
+
+/** Truncate at the first occurrence of any char in `chars`, trimming trailing whitespace. */
+function truncateAt(str, chars) {
+  for (let i = 0; i < str.length; i++) {
+    if (chars.includes(str[i])) return str.substring(0, i).trimEnd();
+  }
+  return str;
+}
+
+/** Find index of first char in `chars` within `str`, or -1. */
+function indexOfAny(str, chars) {
+  for (let i = 0; i < str.length; i++) {
+    if (chars.includes(str[i])) return i;
+  }
+  return -1;
+}
+
+/** Strip leading "public " prefix (with any trailing whitespace). */
+function stripPublicPrefix(str) {
+  if (!str.startsWith('public ')) return str;
+  let i = 7;
+  while (i < str.length && (str[i] === ' ' || str[i] === '\t')) i++;
+  return str.substring(i);
+}
+
 function tryParseEvent(cleanLine) {
   if (!cleanLine.includes(' event ')) return null;
-  const evMatch = cleanLine.match(/event\s+(\S+)\s+(\w+)/);
-  if (!evMatch) return null;
+  const idx = cleanLine.indexOf(' event ') + 7;
+  const afterEvent = cleanLine.substring(idx).trim();
+  const spaceIdx = afterEvent.indexOf(' ');
+  if (spaceIdx === -1) return null;
+  const rest = afterEvent.substring(spaceIdx + 1).trim();
+  // Extract event name (first word)
+  let end = 0;
+  while (end < rest.length && isWordChar(rest[end])) end++;
+  if (end === 0) return null;
   return {
-    name: evMatch[2],
+    name: rest.substring(0, end),
     kind: 'event',
-    signature: cleanLine.replace(/\s*[{;].*$/, '').replace(/^public\s+/, ''),
+    signature: stripPublicPrefix(truncateAt(cleanLine, '{;')),
   };
 }
 
 function tryParseMethod(noAccess) {
   if (!noAccess.includes('(')) return null;
-  // Match return type + name + params. Use atomic-like approach: return type
-  // is everything before the last identifier before '(', captured greedily
-  // up to whitespace + word boundary.
   const parenIdx = noAccess.indexOf('(');
   if (parenIdx === -1) return null;
   const beforeParen = noAccess.substring(0, parenIdx).trimEnd();
-  const nameMatch = beforeParen.match(/^(.+)\s+(\w+)$/);
-  if (!nameMatch) return null;
-  const retType = nameMatch[1].trim();
-  const name = nameMatch[2];
-  const genericsMatch = noAccess.substring(parenIdx).match(/^(<[^>]+>)?\s*\(([^)]*)\)/);
-  if (!genericsMatch) return null;
-  const generics = genericsMatch[1] || '';
-  const params = genericsMatch[2].trim();
+  const parts = splitLastWord(beforeParen);
+  if (!parts) return null;
+  const [retType, name] = parts;
+  // Parse optional generics and params
+  const after = noAccess.substring(parenIdx);
+  let generics = '';
+  let searchFrom = 0;
+  if (after.startsWith('<')) {
+    const gtIdx = after.indexOf('>');
+    if (gtIdx === -1) return null;
+    generics = after.substring(0, gtIdx + 1);
+    searchFrom = gtIdx + 1;
+  }
+  const openIdx = after.indexOf('(', searchFrom);
+  if (openIdx === -1) return null;
+  const closeIdx = after.indexOf(')', openIdx);
+  if (closeIdx === -1) return null;
+  const params = after.substring(openIdx + 1, closeIdx).trim();
   return { name, kind: 'method', signature: `${name}${generics}(${params})`, returnType: retType };
 }
 
 function tryParseProperty(line, noAccess, typeKind) {
-  const isGetSet = /\{\s*get/.test(line) || /\{\s*set/.test(line) || /=>\s/.test(line);
-  const isInterfaceProp = typeKind === 'interface' && /;\s*}/.test(line);
+  // Detect get/set accessors or arrow expression
+  const braceIdx = line.indexOf('{');
+  let isGetSet = line.includes('=>');
+  if (!isGetSet && braceIdx !== -1) {
+    const afterBrace = line.substring(braceIdx + 1).trimStart();
+    isGetSet = afterBrace.startsWith('get') || afterBrace.startsWith('set');
+  }
+  const isInterfaceProp = typeKind === 'interface' && line.includes(';') && line.includes('}');
   if (!isGetSet && !isInterfaceProp) return null;
 
   // Find the property name (last identifier before { or =)
-  const propSigEnd = noAccess.search(/\s*[{=]/);
-  if (propSigEnd === -1) return null;
-  const propSig = noAccess.substring(0, propSigEnd).trimEnd();
-  const propParts = propSig.match(/^(.+)\s+(\w+)$/);
+  const charIdx = indexOfAny(noAccess, '{=');
+  if (charIdx === -1) return null;
+  const propSig = noAccess.substring(0, charIdx).trimEnd();
+  const propParts = splitLastWord(propSig);
   if (!propParts) return null;
-  const retType = propParts[1].trim();
-  const name = propParts[2];
+  const [retType, name] = propParts;
   return { name, kind: 'property', signature: `${retType} ${name}`, returnType: retType };
 }
 
