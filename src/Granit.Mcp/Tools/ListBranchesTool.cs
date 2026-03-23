@@ -18,18 +18,20 @@ public static class ListBranchesTool
         string? repo = null,
         CancellationToken ct = default)
     {
-        var branches = await client.ListBranchesAsync(repo, ct);
+        List<BranchInfo> branches = await client.ListBranchesAsync(repo, ct);
 
         if (branches.Count == 0)
+        {
             return "No branches with code indexes found.";
+        }
 
-        var grouped = branches
+        IOrderedEnumerable<IGrouping<string, BranchInfo>> grouped = branches
             .GroupBy(b => b.Repo)
             .OrderBy(g => g.Key);
 
-        var sections = grouped.Select(g =>
+        IEnumerable<string> sections = grouped.Select(g =>
         {
-            var list = g.Select(b => $"- `{b.Branch}`");
+            IEnumerable<string> list = g.Select(b => $"- `{b.Branch}`");
             return $"### {g.Key}\n{string.Join('\n', list)}";
         });
 

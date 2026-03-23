@@ -32,18 +32,20 @@ public sealed class NuGetClient(
         lock (_lock)
         {
             if (_packageListCache is not null && !_packageListCache.IsExpired)
+            {
                 return _packageListCache.Data;
+            }
         }
 
-        using var http = httpFactory.CreateClient();
+        using HttpClient http = httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(15);
 
-        var url = $"{SearchUrl}?q=owner:granit-fx&take=50&prerelease=false";
-        var json = await http.GetStringAsync(url, ct);
-        var response = JsonSerializer.Deserialize<NuGetSearchResponse>(
+        string url = $"{SearchUrl}?q=owner:granit-fx&take=50&prerelease=false";
+        string json = await http.GetStringAsync(url, ct);
+        NuGetSearchResponse? response = JsonSerializer.Deserialize<NuGetSearchResponse>(
             json, JsonOptions);
 
-        var packages = response?.Data
+        List<PackageSummary> packages = response?.Data
             .Select(p => new PackageSummary(
                 p.Id, p.Version, p.Description ?? "",
                 p.TotalDownloads, p.Authors, p.Tags))
@@ -61,33 +63,41 @@ public sealed class NuGetClient(
     public async Task<PackageDetail?> GetPackageInfoAsync(
         string packageId, CancellationToken ct = default)
     {
-        var key = packageId.ToLowerInvariant();
+        string key = packageId.ToLowerInvariant();
 
         lock (_lock)
         {
-            if (_packageInfoCache.TryGetValue(key, out var cached)
+            if (_packageInfoCache.TryGetValue(key, out CachedData<PackageDetail>? cached)
                 && !cached.IsExpired)
+            {
                 return cached.Data;
+            }
         }
 
         try
         {
-            using var http = httpFactory.CreateClient();
+            using HttpClient http = httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(15);
 
-            var url = $"{RegistrationUrl}/{key}/index.json";
-            var response = await http.GetAsync(url, ct);
+            string url = $"{RegistrationUrl}/{key}/index.json";
+            HttpResponseMessage response = await http.GetAsync(url, ct);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
                 return null;
+            }
+
             response.EnsureSuccessStatusCode();
 
-            var index = await JsonSerializer.DeserializeAsync<RegistrationIndex>(
+            RegistrationIndex? index = await JsonSerializer.DeserializeAsync<RegistrationIndex>(
                 await response.Content.ReadAsStreamAsync(ct),
                 JsonOptions, ct);
-            if (index is null) return null;
+            if (index is null)
+            {
+                return null;
+            }
 
             var entries = new List<CatalogEntry>();
-            foreach (var page in index.Items)
+            foreach (RegistrationPage page in index.Items)
             {
                 if (page.Items is not null)
                 {
@@ -96,9 +106,13 @@ public sealed class NuGetClient(
                 }
                 else
                 {
-                    var pageResponse = await http.GetAsync(page.Url, ct);
-                    if (!pageResponse.IsSuccessStatusCode) continue;
-                    var pageData = await JsonSerializer
+                    HttpResponseMessage pageResponse = await http.GetAsync(page.Url, ct);
+                    if (!pageResponse.IsSuccessStatusCode)
+                    {
+                        continue;
+                    }
+
+                    RegistrationPage? pageData = await JsonSerializer
                         .DeserializeAsync<RegistrationPage>(
                             await pageResponse.Content
                                 .ReadAsStreamAsync(ct),
@@ -111,9 +125,12 @@ public sealed class NuGetClient(
                 }
             }
 
-            if (entries.Count == 0) return null;
+            if (entries.Count == 0)
+            {
+                return null;
+            }
 
-            var latest = entries[^1];
+            CatalogEntry latest = entries[^1];
             var detail = new PackageDetail(
                 latest.Id,
                 latest.Version,

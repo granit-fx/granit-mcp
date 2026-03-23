@@ -15,18 +15,20 @@ public static class ListPackagesTool
         NuGetClient nuget,
         CancellationToken ct = default)
     {
-        var packages = await nuget.ListPackagesAsync(ct);
+        List<PackageSummary> packages = await nuget.ListPackagesAsync(ct);
 
         if (packages.Count == 0)
+        {
             return "No Granit packages found on NuGet.";
+        }
 
         var sorted = packages.OrderBy(p => p.Id).ToList();
-        var rows = sorted.Select(p =>
+        IEnumerable<string> rows = sorted.Select(p =>
         {
-            var dl = p.Downloads >= 1000
+            string dl = p.Downloads >= 1000
                 ? $"{p.Downloads / 1000.0:F1}k"
-                : p.Downloads.ToString();
-            var desc = !string.IsNullOrEmpty(p.Description)
+                : p.Downloads.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string desc = !string.IsNullOrEmpty(p.Description)
                 ? p.Description : "No description";
             return $"- **{p.Id}** v{p.Version} — {desc} ({dl} downloads)";
         });

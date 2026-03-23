@@ -19,15 +19,20 @@ public static class SearchDocsTool
         [Description("Maximum number of results (default 6, max 20)")]
         int limit = 6)
     {
-        var status = store.EnsureReadyOrStatus();
-        if (status is not null) return status;
+        string? status = store.EnsureReadyOrStatus();
+        if (status is not null)
+        {
+            return status;
+        }
 
-        var results = store.Search(query, Math.Clamp(limit, 1, 20));
+        List<DocSearchResult> results = store.Search(query, Math.Clamp(limit, 1, 20));
 
         if (results.Count == 0)
+        {
             return $"No results found for \"{query}\".";
+        }
 
-        var lines = results.Select((r, i) =>
+        IEnumerable<string> lines = results.Select((r, i) =>
             $"### {i + 1}. {r.Title}\n" +
             $"**ID:** `{r.Id}` · **Category:** {r.Category}\n" +
             $"{r.Snippet}");

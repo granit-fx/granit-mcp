@@ -13,15 +13,20 @@ public static class ListPatternsTool
         "framework. Use search_docs or get_doc to read pattern details.")]
     public static string Execute(DocsStore store)
     {
-        var status = store.EnsureReadyOrStatus();
-        if (status is not null) return status;
+        string? status = store.EnsureReadyOrStatus();
+        if (status is not null)
+        {
+            return status;
+        }
 
-        var patterns = store.ListByCategory("pattern");
+        List<DocSearchResult> patterns = store.ListByCategory("pattern");
 
         if (patterns.Count == 0)
+        {
             return "No patterns found in the documentation index.";
+        }
 
-        var lines = patterns.Select(p =>
+        IEnumerable<string> lines = patterns.Select(p =>
             $"- **{p.Title}** (`{p.Id}`)");
 
         return $"## Granit architecture patterns " +

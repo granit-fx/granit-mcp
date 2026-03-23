@@ -20,7 +20,7 @@ public sealed class DocsStore : IDisposable
         _logger = logger;
 
         Directory.CreateDirectory(config.DataDir);
-        var dbPath = Path.Combine(config.DataDir, "docs.db");
+        string dbPath = Path.Combine(config.DataDir, "docs.db");
         _db = new SqliteConnection($"Data Source={dbPath}");
         _db.Open();
 
@@ -29,7 +29,7 @@ public sealed class DocsStore : IDisposable
 
     private void InitSchema()
     {
-        using var cmd = _db.CreateCommand();
+        using SqliteCommand cmd = _db.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS state (
                 key   TEXT PRIMARY KEY,
@@ -51,27 +51,27 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     public void Index(string markdownContent)
     {
-        var articles = ParseArticles(markdownContent);
+        List<DocArticle> articles = ParseArticles(markdownContent);
 
-        using var tx = _db.BeginTransaction();
+        using SqliteTransaction tx = _db.BeginTransaction();
 
-        using (var del = _db.CreateCommand())
+        using (SqliteCommand del = _db.CreateCommand())
         {
             del.CommandText = "DELETE FROM docs;";
             del.ExecuteNonQuery();
         }
 
-        using (var insert = _db.CreateCommand())
+        using (SqliteCommand insert = _db.CreateCommand())
         {
             insert.CommandText =
                 "INSERT INTO docs (id, title, category, content) " +
                 "VALUES ($id, $title, $category, $content);";
-            var pId = insert.Parameters.Add("$id", SqliteType.Text);
-            var pTitle = insert.Parameters.Add("$title", SqliteType.Text);
-            var pCategory = insert.Parameters.Add("$category", SqliteType.Text);
-            var pContent = insert.Parameters.Add("$content", SqliteType.Text);
+            SqliteParameter pId = insert.Parameters.Add("$id", SqliteType.Text);
+            SqliteParameter pTitle = insert.Parameters.Add("$title", SqliteType.Text);
+            SqliteParameter pCategory = insert.Parameters.Add("$category", SqliteType.Text);
+            SqliteParameter pContent = insert.Parameters.Add("$content", SqliteType.Text);
 
-            foreach (var article in articles)
+            foreach (DocArticle article in articles)
             {
                 pId.Value = article.Id;
                 pTitle.Value = article.Title;
@@ -81,7 +81,7 @@ public sealed class DocsStore : IDisposable
             }
         }
 
-        using (var state = _db.CreateCommand())
+        using (SqliteCommand state = _db.CreateCommand())
         {
             state.CommandText =
                 "INSERT OR REPLACE INTO state (key, value) " +
@@ -103,10 +103,13 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     public List<DocSearchResult> Search(string query, int limit = 6)
     {
-        var escaped = EscapeQuery(query);
-        if (string.IsNullOrWhiteSpace(escaped)) return [];
+        string escaped = EscapeQuery(query);
+        if (string.IsNullOrWhiteSpace(escaped))
+        {
+            return [];
+        }
 
-        using var cmd = _db.CreateCommand();
+        using SqliteCommand cmd = _db.CreateCommand();
         cmd.CommandText = """
             SELECT id, title, category,
                    snippet(docs, 3, '»', '«', '…', 40) AS snippet,
@@ -120,7 +123,7 @@ public sealed class DocsStore : IDisposable
         cmd.Parameters.AddWithValue("$limit", limit);
 
         var results = new List<DocSearchResult>();
-        using var reader = cmd.ExecuteReader();
+        using SqliteDataReader reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             results.Add(new DocSearchResult(
@@ -137,14 +140,17 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     public DocArticle? GetById(string id)
     {
-        using var cmd = _db.CreateCommand();
+        using SqliteCommand cmd = _db.CreateCommand();
         cmd.CommandText =
             "SELECT id, title, category, content " +
             "FROM docs WHERE id = $id LIMIT 1;";
         cmd.Parameters.AddWithValue("$id", id);
 
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read()) return null;
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
 
         return new DocArticle(
             reader.GetString(0),
@@ -158,14 +164,14 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     public List<DocSearchResult> ListByCategory(string category)
     {
-        using var cmd = _db.CreateCommand();
+        using SqliteCommand cmd = _db.CreateCommand();
         cmd.CommandText =
             "SELECT id, title, category, '' " +
             "FROM docs WHERE category = $cat ORDER BY title;";
         cmd.Parameters.AddWithValue("$cat", category);
 
         var results = new List<DocSearchResult>();
-        using var reader = cmd.ExecuteReader();
+        using SqliteDataReader reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             results.Add(new DocSearchResult(
@@ -182,13 +188,16 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     public bool HasFreshIndex(int maxAgeHours)
     {
-        using var cmd = _db.CreateCommand();
+        using SqliteCommand cmd = _db.CreateCommand();
         cmd.CommandText =
             "SELECT value FROM state WHERE key = 'last_indexed';";
-        var result = cmd.ExecuteScalar() as string;
-        if (result is null) return false;
+        string? result = cmd.ExecuteScalar() as string;
+        if (result is null)
+        {
+            return false;
+        }
 
-        return DateTime.TryParse(result, out var ts)
+        return DateTime.TryParse(result, out DateTime ts)
             && (DateTime.UtcNow - ts).TotalHours < maxAgeHours;
     }
 
@@ -204,19 +213,21 @@ public sealed class DocsStore : IDisposable
     private static List<DocArticle> ParseArticles(string markdown)
     {
         var articles = new List<DocArticle>();
-        var lines = markdown.Split('\n');
+        string[] lines = markdown.Split('\n');
 
         string? currentTitle = null;
         var contentLines = new List<string>();
-        var id = 0;
+        int id = 0;
 
-        for (var i = 0; i < lines.Length; i++)
+        for (int i = 0; i < lines.Length; i++)
         {
-            var line = lines[i];
+            string line = lines[i];
 
             // Skip the <SYSTEM> tag at the top
             if (line.StartsWith("<SYSTEM>", StringComparison.Ordinal))
+            {
                 continue;
+            }
 
             if (line.StartsWith("# ", StringComparison.Ordinal)
                 && !line.StartsWith("## ", StringComparison.Ordinal))
@@ -249,26 +260,41 @@ public sealed class DocsStore : IDisposable
     private static DocArticle BuildArticle(
         int id, string title, List<string> contentLines)
     {
-        var content = string.Join('\n', contentLines).Trim();
-        var category = InferCategory(title, content);
+        string content = string.Join('\n', contentLines).Trim();
+        string category = InferCategory(title, content);
         return new DocArticle($"doc-{id}", title, category, content);
     }
 
     private static string InferCategory(string title, string content)
     {
-        var lower = title.ToLowerInvariant();
+        string lower = title.ToLowerInvariant();
         if (lower.Contains("pattern") || lower.Contains("architecture"))
+        {
             return "pattern";
+        }
+
         if (lower.Contains("module") || lower.Contains("granit."))
+        {
             return "module";
+        }
+
         if (lower.Contains("getting started") || lower.Contains("quick start")
             || lower.Contains("crud"))
+        {
             return "guide";
+        }
+
         if (lower.Contains("gdpr") || lower.Contains("compliance")
             || lower.Contains("iso 27001") || lower.Contains("crypto"))
+        {
             return "compliance";
+        }
+
         if (content.Contains("```csharp") || content.Contains("```cs"))
+        {
             return "reference";
+        }
+
         return "general";
     }
 
@@ -278,7 +304,7 @@ public sealed class DocsStore : IDisposable
     /// </summary>
     private static string EscapeQuery(string query)
     {
-        var terms = query
+        IEnumerable<string> terms = query
             .Split(' ', StringSplitOptions.RemoveEmptyEntries
                 | StringSplitOptions.TrimEntries)
             .Where(t => t.Length >= 2)

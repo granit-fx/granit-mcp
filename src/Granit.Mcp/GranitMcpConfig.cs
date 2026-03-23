@@ -14,23 +14,23 @@ public sealed record GranitMcpConfig(
 
     public static GranitMcpConfig FromEnvironment()
     {
-        var logLevel = ParseEnum(
+        LogLevel logLevel = ParseEnum(
             $"{Prefix}LOG_LEVEL", LogLevel.Information);
-        var refreshHours = ParseInt(
+        int refreshHours = ParseInt(
             $"{Prefix}REFRESH_HOURS", 4);
-        var dataDir = Environment.GetEnvironmentVariable(
+        string dataDir = Environment.GetEnvironmentVariable(
             $"{Prefix}DATA_DIR")
             ?? Path.Combine(
                 Environment.GetFolderPath(
                     Environment.SpecialFolder.UserProfile),
                 ".granit-mcp");
-        var docsUrl = Environment.GetEnvironmentVariable(
+        string docsUrl = Environment.GetEnvironmentVariable(
             $"{Prefix}DOCS_URL")
             ?? "https://granit-fx.dev/llms-full.txt";
-        var codeIndexUrl = Environment.GetEnvironmentVariable(
+        string codeIndexUrl = Environment.GetEnvironmentVariable(
             $"{Prefix}CODE_INDEX_URL")
             ?? "https://raw.githubusercontent.com/granit-fx/granit-dotnet/{branch}/.mcp-code-index.json";
-        var frontIndexUrl = Environment.GetEnvironmentVariable(
+        string frontIndexUrl = Environment.GetEnvironmentVariable(
             $"{Prefix}FRONT_INDEX_URL")
             ?? "https://raw.githubusercontent.com/granit-fx/granit-front/{branch}/.mcp-front-index.json";
 
@@ -42,15 +42,15 @@ public sealed record GranitMcpConfig(
     private static T ParseEnum<T>(string key, T defaultValue)
         where T : struct, Enum
     {
-        var value = Environment.GetEnvironmentVariable(key);
-        return Enum.TryParse<T>(value, ignoreCase: true, out var result)
+        string? value = Environment.GetEnvironmentVariable(key);
+        return Enum.TryParse<T>(value, ignoreCase: true, out T result)
             ? result
             : defaultValue;
     }
 
     private static int ParseInt(string key, int defaultValue)
     {
-        var value = Environment.GetEnvironmentVariable(key);
-        return int.TryParse(value, out var result) ? result : defaultValue;
+        string? value = Environment.GetEnvironmentVariable(key);
+        return int.TryParse(value, out int result) ? result : defaultValue;
     }
 }

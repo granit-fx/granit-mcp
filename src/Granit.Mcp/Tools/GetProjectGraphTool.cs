@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Granit.Mcp.Models;
 using Granit.Mcp.Services;
 using ModelContextProtocol.Server;
 
@@ -23,15 +24,15 @@ public static class GetProjectGraphTool
 
         if (repo is not "front")
         {
-            var codeIndex = await client.GetCodeIndexAsync(branch, ct);
+            CodeIndex? codeIndex = await client.GetCodeIndexAsync(branch, ct);
             if (codeIndex is { ProjectGraph.Count: > 0 })
             {
                 var sorted = codeIndex.ProjectGraph
                     .OrderBy(p => p.Name)
                     .ToList();
-                var lines = sorted.Select(p =>
+                IEnumerable<string> lines = sorted.Select(p =>
                 {
-                    var deps = p.Deps.Count > 0
+                    string deps = p.Deps.Count > 0
                         ? $"→ {string.Join(", ", p.Deps)}"
                         : "*(no dependencies)*";
                     return $"- **{p.Name}** ({p.Framework}) {deps}";
@@ -45,15 +46,15 @@ public static class GetProjectGraphTool
 
         if (repo is not "dotnet")
         {
-            var frontIndex = await client.GetFrontIndexAsync(branch, ct);
+            FrontIndex? frontIndex = await client.GetFrontIndexAsync(branch, ct);
             if (frontIndex is { Packages.Count: > 0 })
             {
                 var sorted = frontIndex.Packages
                     .OrderBy(p => p.Name)
                     .ToList();
-                var lines = sorted.Select(p =>
+                IEnumerable<string> lines = sorted.Select(p =>
                 {
-                    var desc = !string.IsNullOrEmpty(p.Description)
+                    string desc = !string.IsNullOrEmpty(p.Description)
                         ? $" — {p.Description}" : "";
                     return $"- **{p.Name}**{desc}";
                 });

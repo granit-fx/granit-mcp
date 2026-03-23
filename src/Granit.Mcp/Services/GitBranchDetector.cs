@@ -9,17 +9,23 @@ public sealed class GitBranchDetector
     private const string DefaultBranch = "develop";
     private const string RefPrefix = "ref: refs/heads/";
 
-    public string DetectBranch()
+    public static string DetectBranch()
     {
         try
         {
-            var gitDir = FindGitDir(Directory.GetCurrentDirectory());
-            if (gitDir is null) return DefaultBranch;
+            string? gitDir = FindGitDir(Directory.GetCurrentDirectory());
+            if (gitDir is null)
+            {
+                return DefaultBranch;
+            }
 
-            var headPath = Path.Combine(gitDir, "HEAD");
-            if (!File.Exists(headPath)) return DefaultBranch;
+            string headPath = Path.Combine(gitDir, "HEAD");
+            if (!File.Exists(headPath))
+            {
+                return DefaultBranch;
+            }
 
-            var content = File.ReadAllText(headPath).Trim();
+            string content = File.ReadAllText(headPath).Trim();
             return content.StartsWith(RefPrefix, StringComparison.Ordinal)
                 ? content[RefPrefix.Length..]
                 : DefaultBranch; // detached HEAD
@@ -32,16 +38,22 @@ public sealed class GitBranchDetector
 
     private static string? FindGitDir(string startDir)
     {
-        var dir = startDir;
+        string? dir = startDir;
         while (dir is not null)
         {
-            var gitDir = Path.Combine(dir, ".git");
-            if (Directory.Exists(gitDir)) return gitDir;
+            string gitDir = Path.Combine(dir, ".git");
+            if (Directory.Exists(gitDir))
+            {
+                return gitDir;
+            }
+
             if (File.Exists(gitDir)) // worktree: .git is a file
             {
-                var content = File.ReadAllText(gitDir).Trim();
+                string content = File.ReadAllText(gitDir).Trim();
                 if (content.StartsWith("gitdir:", StringComparison.Ordinal))
+                {
                     return content["gitdir:".Length..].Trim();
+                }
             }
             dir = Path.GetDirectoryName(dir);
         }

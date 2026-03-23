@@ -1,10 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>granit-mcp</ToolCommandName>
     <PackageId>Granit.Mcp</PackageId>
@@ -16,8 +13,13 @@
     <RepositoryUrl>https://github.com/granit-fx/granit-mcp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>granit;mcp;claude-code;dotnet;documentation;fts5</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <RollForward>Major</RollForward>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="1.1.0" />

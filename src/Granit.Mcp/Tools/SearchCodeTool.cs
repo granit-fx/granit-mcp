@@ -28,28 +28,35 @@ public static class SearchCodeTool
         CancellationToken ct = default)
     {
         limit = Math.Clamp(limit, 1, 20);
-        var terms = Tokenize(query);
-        if (terms.Length == 0) return "Query too short.";
+        string[] terms = Tokenize(query);
+        if (terms.Length == 0)
+        {
+            return "Query too short.";
+        }
 
         var results = new List<ScoredResult>();
 
         if (repo is not "front")
         {
-            var codeIndex = await client.GetCodeIndexAsync(branch, ct);
+            CodeIndex? codeIndex = await client.GetCodeIndexAsync(branch, ct);
             if (codeIndex is not null)
+            {
                 results.AddRange(SearchDotnet(codeIndex, terms, kind));
+            }
         }
 
         if (repo is not "dotnet")
         {
-            var frontIndex = await client.GetFrontIndexAsync(branch, ct);
+            FrontIndex? frontIndex = await client.GetFrontIndexAsync(branch, ct);
             if (frontIndex is not null)
+            {
                 results.AddRange(SearchFront(frontIndex, terms, kind));
+            }
         }
 
         if (results.Count == 0)
         {
-            var hint = repo is not null ? $" in repo \"{repo}\"" : "";
+            string hint = repo is not null ? $" in repo \"{repo}\"" : "";
             return $"No code results found for \"{query}\"{hint}.";
         }
 
@@ -58,16 +65,28 @@ public static class SearchCodeTool
             .Take(limit)
             .ToList();
 
-        var formatted = top.Select((r, i) =>
+        IEnumerable<string> formatted = top.Select((r, i) =>
         {
             var lines = new List<string>
             {
                 $"### {i + 1}. {r.Name}",
                 $"**Kind:** {r.Kind} · **Repo:** {r.Repo} · **Project:** {r.Project}",
             };
-            if (r.Fqn is not null) lines.Add($"**FQN:** {r.Fqn}");
-            if (r.File is not null) lines.Add($"**File:** {r.File}");
-            if (r.Signature is not null) lines.Add($"**Signature:** `{r.Signature}`");
+            if (r.Fqn is not null)
+            {
+                lines.Add($"**FQN:** {r.Fqn}");
+            }
+
+            if (r.File is not null)
+            {
+                lines.Add($"**File:** {r.File}");
+            }
+
+            if (r.Signature is not null)
+            {
+                lines.Add($"**Signature:** `{r.Signature}`");
+            }
+
             return string.Join('\n', lines);
         });
 
@@ -80,12 +99,14 @@ public static class SearchCodeTool
     {
         var results = new List<ScoredResult>();
 
-        foreach (var sym in index.Symbols)
+        foreach (CodeSymbol sym in index.Symbols)
         {
             if (kindFilter is not null && sym.Kind != kindFilter)
+            {
                 continue;
+            }
 
-            var score = ScoreSymbol(
+            int score = ScoreSymbol(
                 sym.Name, sym.Fqn,
                 sym.Members.Select(m => m.Name).ToArray(), terms);
             if (score > 0)
@@ -95,12 +116,14 @@ public static class SearchCodeTool
                     sym.File, null, "dotnet", score));
             }
 
-            foreach (var member in sym.Members)
+            foreach (CodeMember member in sym.Members)
             {
                 if (kindFilter is not null && member.Kind != kindFilter)
+                {
                     continue;
+                }
 
-                var memberScore = ScoreMember(
+                int memberScore = ScoreMember(
                     member.Name, sym.Name, member.Signature, terms);
                 if (memberScore > 0)
                 {
@@ -122,14 +145,16 @@ public static class SearchCodeTool
     {
         var results = new List<ScoredResult>();
 
-        foreach (var pkg in index.Packages)
+        foreach (FrontPackage pkg in index.Packages)
         {
-            foreach (var exp in pkg.Exports)
+            foreach (FrontExport exp in pkg.Exports)
             {
                 if (kindFilter is not null && exp.Kind != kindFilter)
+                {
                     continue;
+                }
 
-                var score = ScoreExport(
+                int score = ScoreExport(
                     exp.Name, pkg.Name, exp.Signature, terms);
                 if (score > 0)
                 {
@@ -153,11 +178,11 @@ public static class SearchCodeTool
 
     private static int CountHits(string text, string[] terms)
     {
-        var lower = text.ToLowerInvariant();
-        var count = 0;
-        foreach (var term in terms)
+        string lower = text.ToLowerInvariant();
+        int count = 0;
+        foreach (string term in terms)
         {
-            var idx = 0;
+            int idx = 0;
             while ((idx = lower.IndexOf(term, idx, StringComparison.Ordinal)) != -1)
             {
                 count++;

@@ -13,26 +13,26 @@ public sealed class DocsIndexer(
     GranitMcpConfig config,
     ILogger<DocsIndexer> logger) : BackgroundService
 {
-    protected override async Task ExecuteAsync(CancellationToken ct)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Skip if we already have a fresh cached index
         if (!store.HasFreshIndex(config.RefreshHours))
         {
-            await IndexAsync(ct);
+            await IndexAsync(stoppingToken);
         }
         else
         {
             logger.LogInformation(
                 "Using cached FTS5 index (still fresh)");
             // Mark as ready — the persisted DB is loaded
-            store.Index(await FetchDocsAsync(ct));
+            store.Index(await FetchDocsAsync(stoppingToken));
         }
 
         using var timer = new PeriodicTimer(
             TimeSpan.FromHours(config.RefreshHours));
-        while (await timer.WaitForNextTickAsync(ct))
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            await IndexAsync(ct);
+            await IndexAsync(stoppingToken);
         }
     }
 
@@ -42,7 +42,7 @@ public sealed class DocsIndexer(
         {
             logger.LogInformation(
                 "Fetching llms-full.txt from {Url}", config.DocsUrl);
-            var content = await FetchDocsAsync(ct);
+            string content = await FetchDocsAsync(ct);
             store.Index(content);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -54,7 +54,7 @@ public sealed class DocsIndexer(
 
     private async Task<string> FetchDocsAsync(CancellationToken ct)
     {
-        using var http = httpFactory.CreateClient();
+        using HttpClient http = httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(30);
         return await http.GetStringAsync(config.DocsUrl, ct);
     }

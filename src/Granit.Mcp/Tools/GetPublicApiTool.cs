@@ -23,27 +23,32 @@ public static class GetPublicApiTool
         string? branch = null,
         CancellationToken ct = default)
     {
-        var query = type.ToLowerInvariant()
+        string query = type.ToLowerInvariant()
             .Replace("granit.", "", StringComparison.Ordinal);
 
         if (repo is not "front")
         {
-            var codeIndex = await client.GetCodeIndexAsync(branch, ct);
+            CodeIndex? codeIndex = await client.GetCodeIndexAsync(branch, ct);
             if (codeIndex is not null)
             {
-                var match = FindDotnetType(codeIndex.Symbols, query);
-                if (match is not null) return FormatDotnetApi(match);
+                CodeSymbol? match = FindDotnetType(codeIndex.Symbols, query);
+                if (match is not null)
+                {
+                    return FormatDotnetApi(match);
+                }
             }
         }
 
         if (repo is not "dotnet")
         {
-            var frontIndex = await client.GetFrontIndexAsync(branch, ct);
+            FrontIndex? frontIndex = await client.GetFrontIndexAsync(branch, ct);
             if (frontIndex is not null)
             {
-                var match = FindFrontExport(frontIndex.Packages, query);
+                (string Pkg, FrontExport Export)? match = FindFrontExport(frontIndex.Packages, query);
                 if (match is not null)
+                {
                     return FormatFrontApi(match.Value.Pkg, match.Value.Export);
+                }
             }
         }
 
@@ -54,19 +59,25 @@ public static class GetPublicApiTool
     private static CodeSymbol? FindDotnetType(
         List<CodeSymbol> symbols, string query)
     {
-        var alpha = new string(query.Where(char.IsLetterOrDigit).ToArray());
+        string alpha = new string(query.Where(char.IsLetterOrDigit).ToArray());
 
         // 1. Exact name match
-        var exact = symbols.Find(s =>
+        CodeSymbol? exact = symbols.Find(s =>
             s.Name.Equals(query, StringComparison.OrdinalIgnoreCase)
             || s.Name.Equals(alpha, StringComparison.OrdinalIgnoreCase));
-        if (exact is not null) return exact;
+        if (exact is not null)
+        {
+            return exact;
+        }
 
         // 2. FQN ends-with
-        var byFqn = symbols.Find(s =>
+        CodeSymbol? byFqn = symbols.Find(s =>
             s.Fqn.EndsWith($".{query}", StringComparison.OrdinalIgnoreCase)
             || s.Fqn.EndsWith($".{alpha}", StringComparison.OrdinalIgnoreCase));
-        if (byFqn is not null) return byFqn;
+        if (byFqn is not null)
+        {
+            return byFqn;
+        }
 
         // 3. Partial — shortest name wins
         return symbols
@@ -78,21 +89,27 @@ public static class GetPublicApiTool
     private static (string Pkg, FrontExport Export)? FindFrontExport(
         List<FrontPackage> packages, string query)
     {
-        var alpha = new string(query.Where(char.IsLetterOrDigit).ToArray());
+        string alpha = new string(query.Where(char.IsLetterOrDigit).ToArray());
 
-        foreach (var pkg in packages)
+        foreach (FrontPackage pkg in packages)
         {
-            var match = pkg.Exports.Find(e =>
+            FrontExport? match = pkg.Exports.Find(e =>
                 e.Name.Equals(query, StringComparison.OrdinalIgnoreCase)
                 || e.Name.Equals(alpha, StringComparison.OrdinalIgnoreCase));
-            if (match is not null) return (pkg.Name, match);
+            if (match is not null)
+            {
+                return (pkg.Name, match);
+            }
         }
 
-        foreach (var pkg in packages)
+        foreach (FrontPackage pkg in packages)
         {
-            var match = pkg.Exports.Find(e =>
+            FrontExport? match = pkg.Exports.Find(e =>
                 e.Name.Contains(alpha, StringComparison.OrdinalIgnoreCase));
-            if (match is not null) return (pkg.Name, match);
+            if (match is not null)
+            {
+                return (pkg.Name, match);
+            }
         }
 
         return null;
@@ -100,7 +117,7 @@ public static class GetPublicApiTool
 
     private static string FormatDotnetApi(CodeSymbol sym)
     {
-        var ns = sym.Fqn.Replace($".{sym.Name}", "");
+        string ns = sym.Fqn.Replace($".{sym.Name}", "");
         var lines = new List<string>
         {
             $"## {sym.Name}",
@@ -115,19 +132,19 @@ public static class GetPublicApiTool
         }
         else
         {
-            var grouped = sym.Members
+            IOrderedEnumerable<IGrouping<string, CodeMember>> grouped = sym.Members
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => g.Key);
 
-            foreach (var group in grouped)
+            foreach (IGrouping<string, CodeMember>? group in grouped)
             {
-                var kind = char.ToUpperInvariant(group.Key[0])
+                string kind = char.ToUpperInvariant(group.Key[0])
                     + group.Key[1..];
                 lines.Add($"### {kind}s ({group.Count()})");
                 lines.Add("");
-                foreach (var m in group)
+                foreach (CodeMember? m in group)
                 {
-                    var ret = m.ReturnType is not null
+                    string ret = m.ReturnType is not null
                         ? $" → {m.ReturnType}" : "";
                     lines.Add($"- `{m.Signature}`{ret}");
                 }
@@ -152,8 +169,10 @@ public static class GetPublicApiTool
         {
             lines.Add("### Members");
             lines.Add("");
-            foreach (var m in exp.Members)
+            foreach (CodeMember m in exp.Members)
+            {
                 lines.Add($"- `{m.Signature}`");
+            }
         }
 
         return string.Join('\n', lines);

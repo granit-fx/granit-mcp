@@ -19,18 +19,20 @@ public static class GetPackageInfoTool
         string? version = null,
         CancellationToken ct = default)
     {
-        var info = await nuget.GetPackageInfoAsync(package, ct);
+        PackageDetail? info = await nuget.GetPackageInfoAsync(package, ct);
 
         if (info is null)
+        {
             return $"Package \"{package}\" not found on NuGet.\n\n" +
                    "Tip: use `list_packages` to see all available Granit packages.";
+        }
 
         if (version is not null)
         {
-            var match = info.Versions.Find(v => v.Version == version);
+            PackageVersionInfo? match = info.Versions.Find(v => v.Version == version);
             if (match is null)
             {
-                var available = string.Join(", ",
+                string available = string.Join(", ",
                     info.Versions.Where(v => v.Listed)
                         .TakeLast(10)
                         .Select(v => v.Version));
@@ -39,7 +41,7 @@ public static class GetPackageInfoTool
             }
         }
 
-        var displayVersion = version ?? info.LatestVersion;
+        string displayVersion = version ?? info.LatestVersion;
 
         var lines = new List<string>
         {
@@ -56,11 +58,20 @@ public static class GetPackageInfoTool
         // Metadata
         lines.Add($"**Authors:** {info.Authors}");
         if (info.License is not null)
+        {
             lines.Add($"**License:** {info.License}");
+        }
+
         if (info.ProjectUrl is not null)
+        {
             lines.Add($"**Project:** {info.ProjectUrl}");
+        }
+
         if (info.Tags.Count > 0)
+        {
             lines.Add($"**Tags:** {string.Join(", ", info.Tags)}");
+        }
+
         lines.Add("");
 
         // Dependencies
@@ -68,7 +79,7 @@ public static class GetPackageInfoTool
         {
             lines.Add("### Dependencies");
             lines.Add("");
-            foreach (var group in info.DependencyGroups)
+            foreach (PackageDepGroup group in info.DependencyGroups)
             {
                 lines.Add($"**{group.Framework}**");
                 if (group.Dependencies.Count == 0)
@@ -77,8 +88,10 @@ public static class GetPackageInfoTool
                 }
                 else
                 {
-                    foreach (var dep in group.Dependencies)
+                    foreach (PackageDep dep in group.Dependencies)
+                    {
                         lines.Add($"- {dep.Id} {dep.Range}");
+                    }
                 }
                 lines.Add("");
             }
@@ -91,14 +104,16 @@ public static class GetPackageInfoTool
         {
             lines.Add("### Recent versions");
             lines.Add("");
-            foreach (var v in recent)
+            foreach (PackageVersionInfo? v in recent)
             {
-                var date = v.Published is not null
+                string date = v.Published is not null
                     ? $" ({v.Published.Split('T')[0]})" : "";
                 lines.Add($"- v{v.Version}{date}");
             }
             if (listed.Count > 10)
+            {
                 lines.Add($"- *… and {listed.Count - 10} earlier versions*");
+            }
         }
 
         return string.Join('\n', lines);

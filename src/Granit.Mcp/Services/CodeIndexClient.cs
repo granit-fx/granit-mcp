@@ -11,7 +11,6 @@ namespace Granit.Mcp.Services;
 public sealed class CodeIndexClient(
     IHttpClientFactory httpFactory,
     GranitMcpConfig config,
-    GitBranchDetector branchDetector,
     ILogger<CodeIndexClient> logger)
 {
     private const string DefaultBranch = "develop";
@@ -25,13 +24,13 @@ public sealed class CodeIndexClient(
         PropertyNameCaseInsensitive = true,
     };
 
-    public string ResolveBranch(string? branch) =>
-        branch ?? branchDetector.DetectBranch();
+    public static string ResolveBranch(string? branch) =>
+        branch ?? GitBranchDetector.DetectBranch();
 
     public async Task<CodeIndex?> GetCodeIndexAsync(
         string? branch, CancellationToken ct = default)
     {
-        var resolved = ResolveBranch(branch);
+        string resolved = ResolveBranch(branch);
         return await GetCachedAsync(
             _codeCache, config.CodeIndexUrl, resolved, ct);
     }
@@ -39,7 +38,7 @@ public sealed class CodeIndexClient(
     public async Task<FrontIndex?> GetFrontIndexAsync(
         string? branch, CancellationToken ct = default)
     {
-        var resolved = ResolveBranch(branch);
+        string resolved = ResolveBranch(branch);
         return await GetCachedAsync(
             _frontCache, config.FrontIndexUrl, resolved, ct);
     }
@@ -48,12 +47,12 @@ public sealed class CodeIndexClient(
         string? repo, CancellationToken ct = default)
     {
         var results = new List<BranchInfo>();
-        using var http = httpFactory.CreateClient();
+        using HttpClient http = httpFactory.CreateClient();
         http.DefaultRequestHeaders.Add("User-Agent", "granit-mcp");
 
         if (repo is null or "dotnet")
         {
-            var branches = await CheckRepoBranchesAsync(
+            List<BranchInfo> branches = await CheckRepoBranchesAsync(
                 http, "granit-fx", "granit-dotnet",
                 ".mcp-code-index.json", ct);
             results.AddRange(branches);
@@ -61,7 +60,7 @@ public sealed class CodeIndexClient(
 
         if (repo is null or "front")
         {
-            var branches = await CheckRepoBranchesAsync(
+            List<BranchInfo> branches = await CheckRepoBranchesAsync(
                 http, "granit-fx", "granit-front",
                 ".mcp-front-index.json", ct);
             results.AddRange(branches);
@@ -78,7 +77,7 @@ public sealed class CodeIndexClient(
     {
         lock (_lock)
         {
-            if (cache.TryGetValue(branch, out var cached)
+            if (cache.TryGetValue(branch, out CachedIndex<T>? cached)
                 && !cached.IsExpired)
             {
                 return cached.Data;
@@ -87,11 +86,11 @@ public sealed class CodeIndexClient(
 
         try
         {
-            var url = urlTemplate.Replace("{branch}", branch);
-            using var http = httpFactory.CreateClient();
+            string url = urlTemplate.Replace("{branch}", branch);
+            using HttpClient http = httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(30);
-            var json = await http.GetStringAsync(url, ct);
-            var data = JsonSerializer.Deserialize<T>(json, JsonOptions);
+            string json = await http.GetStringAsync(url, ct);
+            T? data = JsonSerializer.Deserialize<T>(json, JsonOptions);
 
             if (data is not null)
             {
@@ -112,7 +111,7 @@ public sealed class CodeIndexClient(
             // Return stale cache if available
             lock (_lock)
             {
-                return cache.TryGetValue(branch, out var stale)
+                return cache.TryGetValue(branch, out CachedIndex<T>? stale)
                     ? stale.Data
                     : null;
             }
@@ -123,27 +122,33 @@ public sealed class CodeIndexClient(
         HttpClient http, string owner, string repo,
         string indexFile, CancellationToken ct)
     {
-        var url = $"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100";
+        string url = $"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Accept", "application/vnd.github+json");
 
-        var response = await http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return [];
+        HttpResponseMessage response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
 
-        var branches = await JsonSerializer.DeserializeAsync<List<GitHubBranch>>(
+        List<GitHubBranch>? branches = await JsonSerializer.DeserializeAsync<List<GitHubBranch>>(
             await response.Content.ReadAsStreamAsync(ct),
             JsonOptions, ct);
 
-        if (branches is null) return [];
+        if (branches is null)
+        {
+            return [];
+        }
 
         var results = new List<BranchInfo>();
-        var checks = branches.Select(async b =>
+        IEnumerable<Task<BranchInfo>> checks = branches.Select(async b =>
         {
-            var fileUrl = $"https://api.github.com/repos/{owner}/{repo}/contents/{indexFile}?ref={b.Name}";
+            string fileUrl = $"https://api.github.com/repos/{owner}/{repo}/contents/{indexFile}?ref={b.Name}";
             var req = new HttpRequestMessage(HttpMethod.Head, fileUrl);
             req.Headers.Add("Accept", "application/vnd.github+json");
             req.Headers.Add("User-Agent", "granit-mcp");
-            var res = await http.SendAsync(req, ct);
+            HttpResponseMessage res = await http.SendAsync(req, ct);
             return new BranchInfo(repo, b.Name, res.IsSuccessStatusCode);
         });
 

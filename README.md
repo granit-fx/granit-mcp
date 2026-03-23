@@ -1,6 +1,7 @@
 # granit-mcp
 
 [![GitHub](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/granit-fx/granit-mcp)
+[![NuGet](https://img.shields.io/nuget/v/Granit.Mcp?logo=nuget)](https://www.nuget.org/packages/Granit.Mcp)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=granit-fx_granit-mcp&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=granit-fx_granit-mcp)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 

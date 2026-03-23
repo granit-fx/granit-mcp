@@ -16,13 +16,18 @@ public static class GetDocTool
         [Description("Article ID returned by search_docs (e.g. \"doc-3\")")]
         string id)
     {
-        var status = store.EnsureReadyOrStatus();
-        if (status is not null) return status;
+        string? status = store.EnsureReadyOrStatus();
+        if (status is not null)
+        {
+            return status;
+        }
 
-        var article = store.GetById(id);
+        DocArticle? article = store.GetById(id);
         if (article is null)
+        {
             return $"Article \"{id}\" not found. " +
                    "Use search_docs to find valid IDs.";
+        }
 
         return $"# {article.Title}\n\n" +
                $"**Category:** {article.Category}\n\n" +

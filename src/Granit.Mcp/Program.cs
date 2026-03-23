@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 var config = GranitMcpConfig.FromEnvironment();
 
-var builder = Host.CreateApplicationBuilder(args);
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 // MCP stdio uses stdout for JSON-RPC — all logs must go to stderr.
 builder.Logging.ClearProviders();
@@ -19,7 +19,6 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<DocsStore>();
 builder.Services.AddSingleton<CodeIndexClient>();
 builder.Services.AddSingleton<NuGetClient>();
-builder.Services.AddSingleton<GitBranchDetector>();
 builder.Services.AddHostedService<DocsIndexer>();
 
 builder.Services
