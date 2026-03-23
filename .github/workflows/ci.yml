@@ -54,7 +54,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Build
-        run: dotnet build --no-restore
+        run: dotnet build --no-restore -c Release
 
       - name: SonarCloud End
         if: env.SONAR_TOKEN != ''
@@ -63,7 +63,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Pack
-        run: dotnet pack --no-build -o nupkgs
+        run: dotnet pack --no-build -c Release -o nupkgs
 
       - name: Upload package
         uses: actions/upload-artifact@v4
