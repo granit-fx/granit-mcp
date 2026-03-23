@@ -15,17 +15,15 @@ public sealed class DocsIndexer(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Skip if we already have a fresh cached index
-        if (!store.HasFreshIndex(config.RefreshHours))
-        {
-            await IndexAsync(stoppingToken);
-        }
-        else
+        if (store.HasFreshIndex(config.RefreshHours))
         {
             logger.LogInformation(
                 "Using cached FTS5 index (still fresh)");
-            // Mark as ready — the persisted DB is loaded
-            store.Index(await FetchDocsAsync(stoppingToken));
+            store.MarkReady();
+        }
+        else
+        {
+            await IndexAsync(stoppingToken);
         }
 
         using var timer = new PeriodicTimer(
@@ -49,6 +47,9 @@ public sealed class DocsIndexer(
         {
             logger.LogWarning(ex,
                 "Failed to index docs — serving stale cache if available");
+
+            // If we have a persisted DB from a previous run, mark ready
+            store.MarkReadyIfHasData();
         }
     }
 
@@ -56,6 +57,11 @@ public sealed class DocsIndexer(
     {
         using HttpClient http = httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(30);
-        return await http.GetStringAsync(config.DocsUrl, ct);
+
+        HttpResponseMessage response = await http.GetAsync(
+            config.DocsUrl, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadAsStringAsync(ct);
     }
 }

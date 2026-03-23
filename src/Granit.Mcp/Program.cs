@@ -21,6 +21,11 @@ builder.Services.AddSingleton<CodeIndexClient>();
 builder.Services.AddSingleton<NuGetClient>();
 builder.Services.AddHostedService<DocsIndexer>();
 
+// Don't kill the host if the background indexer fails (offline, 404, etc.)
+builder.Services.Configure<HostOptions>(options =>
+    options.BackgroundServiceExceptionBehavior =
+        BackgroundServiceExceptionBehavior.Ignore);
+
 builder.Services
     .AddMcpServer(options =>
     {

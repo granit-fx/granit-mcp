@@ -201,6 +201,26 @@ public sealed class DocsStore : IDisposable
             && (DateTime.UtcNow - ts).TotalHours < maxAgeHours;
     }
 
+    /// <summary>
+    /// Mark the store as ready when using a persisted DB.
+    /// </summary>
+    public void MarkReady() => _ready = true;
+
+    /// <summary>
+    /// Mark ready only if the persisted DB already has data
+    /// from a previous run (graceful offline fallback).
+    /// </summary>
+    public void MarkReadyIfHasData()
+    {
+        using SqliteCommand cmd = _db.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM docs;";
+        long count = (long)(cmd.ExecuteScalar() ?? 0L);
+        if (count > 0)
+        {
+            _ready = true;
+        }
+    }
+
     public string? EnsureReadyOrStatus()
     {
         return _ready

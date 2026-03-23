@@ -37,27 +37,40 @@ public sealed class NuGetClient(
             }
         }
 
-        using HttpClient http = httpFactory.CreateClient();
-        http.Timeout = TimeSpan.FromSeconds(15);
-
-        string url = $"{SearchUrl}?q=owner:granit-fx&take=50&prerelease=false";
-        string json = await http.GetStringAsync(url, ct);
-        NuGetSearchResponse? response = JsonSerializer.Deserialize<NuGetSearchResponse>(
-            json, JsonOptions);
-
-        List<PackageSummary> packages = response?.Data
-            .Select(p => new PackageSummary(
-                p.Id, p.Version, p.Description ?? "",
-                p.TotalDownloads, p.Authors, p.Tags))
-            .ToList() ?? [];
-
-        lock (_lock)
+        try
         {
-            _packageListCache = new CachedData<List<PackageSummary>>(
-                packages, DateTime.UtcNow.AddHours(12));
-        }
+            using HttpClient http = httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(15);
 
-        return packages;
+            string url = $"{SearchUrl}?q=owner:granit-fx&take=50&prerelease=false";
+            string json = await http.GetStringAsync(url, ct);
+            NuGetSearchResponse? response = JsonSerializer.Deserialize<NuGetSearchResponse>(
+                json, JsonOptions);
+
+            List<PackageSummary> packages = response?.Data
+                .Select(p => new PackageSummary(
+                    p.Id, p.Version, p.Description ?? "",
+                    p.TotalDownloads, p.Authors, p.Tags))
+                .ToList() ?? [];
+
+            lock (_lock)
+            {
+                _packageListCache = new CachedData<List<PackageSummary>>(
+                    packages, DateTime.UtcNow.AddHours(12));
+            }
+
+            return packages;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to fetch NuGet package list");
+
+            // Return stale cache if available
+            lock (_lock)
+            {
+                return _packageListCache?.Data ?? [];
+            }
+        }
     }
 
     public async Task<PackageDetail?> GetPackageInfoAsync(
