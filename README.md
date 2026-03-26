@@ -12,6 +12,9 @@ code navigation, and NuGet package metadata.
 Built as a **.NET 10 dotnet tool** with **SQLite FTS5** for full-text search
 and the [Model Context Protocol SDK](https://modelcontextprotocol.io/).
 
+**[Full documentation](docs/index.md)** — getting started, tools
+reference, configuration, architecture, usage patterns, contributing.
+
 ## Tools (9)
 
 ### Documentation
